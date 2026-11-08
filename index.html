@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#14161a">
+    <title>Lector</title>
+    <link rel="manifest" href="manifest.webmanifest">
+    <link rel="icon" href="icons/icon-192.png">
+    <link rel="apple-touch-icon" href="icons/icon-192.png">
+    <link rel="stylesheet" href="css/app.css">
+    <script src="libs/pdf.min.js"></script>
+    <script>
+        // Desde un archivo local (file://) el navegador no deja crear el worker: se carga en la página
+        if (location.protocol === 'file:') document.write('<script src="libs/pdf.worker.min.js"><\/script>');
+        else pdfjsLib.GlobalWorkerOptions.workerSrc = 'libs/pdf.worker.min.js';
+    </script>
+    <script src="libs/jszip.min.js"></script>
+    <script src="libs/epub.min.js"></script>
+</head>
+<body>
+
+<!-- ============================== BIBLIOTECA ============================== -->
+<section id="v-biblioteca" class="vista activa">
+    <header class="barra">
+        <h1>Lector</h1>
+        <button class="icono" id="b-ajustes-1" title="Ajustes">⚙</button>
+    </header>
+    <div id="lista-libros" class="lista"></div>
+    <p id="vacio" class="vacio">Aún no hay libros.<br>Toca <b>+</b> para cargar un PDF, EPUB o TXT.</p>
+    <label class="fab" title="Cargar libro">+<input type="file" id="archivo" accept=".pdf,.epub,.txt,application/pdf,application/epub+zip,text/plain" hidden></label>
+</section>
+
+<!-- ============================== LECTOR ============================== -->
+<section id="v-lector" class="vista">
+    <aside id="lateral" class="lateral">
+        <h3>Índice</h3>
+        <ol id="lat-lista"></ol>
+        <h3>Subrayados</h3>
+        <ol id="lat-notas"></ol>
+    </aside>
+    <header class="barra">
+        <button class="icono" id="b-volver" title="Biblioteca">←</button>
+        <div class="titulo-libro"><b id="l-titulo"></b><select id="sel-parte"></select></div>
+        <button class="icono" id="b-indice" title="Subrayados">☰</button>
+        <button class="icono" id="b-ajustes-2" title="Ajustes">⚙</button>
+    </header>
+
+    <div id="aviso-nota" class="aviso-nota" hidden>
+        <span>● Copiando desde <b id="nota-desde"></b></span>
+        <button id="b-cancelar-nota">Cancelar</button>
+    </div>
+
+    <div id="pantalla" class="pantalla"></div>
+    <div id="contexto" class="contexto"></div>
+
+    <footer class="mandos">
+        <div class="estado"><span id="e-pagina"></span><span id="e-parte"></span><span id="e-libro"></span><span id="e-tiempo"></span></div>
+        <input type="range" id="barra-pos" min="0" max="0" value="0">
+        <div class="fila">
+            <button id="b-m50" title="Retroceder 50">«50</button>
+            <button id="b-m10" title="Retroceder 10">‹10</button>
+            <button id="b-play" class="play" title="Leer / pausa">▶</button>
+            <button id="b-p10" title="Avanzar 10">10›</button>
+            <button id="b-p50" title="Avanzar 50">50»</button>
+        </div>
+        <div class="fila">
+            <button id="b-voz" class="conmutador" title="Voz">🔊 Voz</button>
+            <button id="b-nota" class="nota">⟦ Desde aquí</button>
+            <button id="b-notas" title="Ver subrayados">📑 Notas <span id="b-notas-n"></span></button>
+        </div>
+    </footer>
+</section>
+
+<!-- ============================== IMPORTAR ============================== -->
+<dialog id="d-importar">
+    <form method="dialog">
+        <h2>Preparar libro</h2>
+        <p class="ayuda" id="i-resumen"></p>
+
+        <h3>1 · Ficha bibliográfica</h3>
+        <div id="i-ficha"></div>
+
+        <h3>2 · Lo que se quita del texto</h3>
+        <div id="i-bloque-filtro">
+            <p class="ayuda">Encabezados y pies encontrados. Los números se agrupan: todas las páginas numeradas cuentan como una sola línea. Ya van marcados los que se repiten; desmarca lo que quieras conservar. «ver» muestra dónde aparece cada uno.</p>
+            <div id="i-filtros" class="opciones"></div>
+        </div>
+
+        <p class="ayuda"><b>Textos propios a quitar:</b> escríbelos aquí o toca una línea en la vista previa. Se quitan en todo el libro, donde aparezcan; un número vale por cualquier número.</p>
+        <div class="agregar"><input id="i-texto" placeholder="p. ej. www.ejemplo.com · Capítulo 3 · Copia de evaluación"><button type="button" id="i-agregar">Agregar</button></div>
+        <ul id="i-textos" class="textos"></ul>
+
+        <div class="previa-barra">
+            <b>Vista previa</b>
+            <button type="button" id="i-ant" title="Anterior">‹</button>
+            <span><span id="i-pag-et">Página</span> <input type="number" id="i-pag" min="1" class="corto"> de <span id="i-npag"></span></span>
+            <button type="button" id="i-sig" title="Siguiente">›</button>
+        </div>
+        <div id="i-previa" class="previa"></div>
+        <p class="ayuda"><s class="quita">tachado</s> = se quita · toca una línea para quitar ese texto en todo el libro.</p>
+
+        <h3>3 · Dividir en partes</h3>
+        <div class="opciones">
+            <label id="i-op-cap"><input type="radio" name="modo" value="capitulos"> Por capítulos (<span id="i-ncap"></span>)</label>
+            <label><input type="radio" name="modo" value="tamano"> Cada <input type="number" id="i-n" min="1" class="corto"> <span id="i-unidad"></span></label>
+        </div>
+
+        <menu>
+            <button value="cancelar" formnovalidate>Cancelar</button>
+            <button value="ok" class="primario">Procesar y guardar</button>
+        </menu>
+    </form>
+</dialog>
+
+<!-- ============================== ELEGIR LIBRO DE UNA CARPETA ============================== -->
+<dialog id="d-elegir">
+    <form method="dialog">
+        <h2>Libros en «<span id="el-carpeta"></span>»</h2>
+        <div id="el-lista" class="opciones"></div>
+        <menu><button value="cancelar">Cancelar</button></menu>
+    </form>
+</dialog>
+
+<!-- ============================== FICHA ============================== -->
+<dialog id="d-ficha">
+    <form method="dialog">
+        <h2>Ficha bibliográfica</h2>
+        <p class="ayuda" id="f-carpeta"></p>
+        <div id="f-campos"></div>
+        <p class="ayuda">Referencia (APA 7):</p>
+        <p id="f-cita" class="cita"></p>
+        <menu>
+            <button value="cancelar" formnovalidate>Cancelar</button>
+            <button value="ok" class="primario">Guardar</button>
+        </menu>
+    </form>
+</dialog>
+
+<!-- ============================== SUBRAYADOS ============================== -->
+<dialog id="d-indice">
+    <form method="dialog">
+        <h2>Subrayados</h2>
+        <p class="ayuda" id="n-libro"></p>
+        <div id="n-lista" class="lista-notas"></div>
+        <menu>
+            <button type="button" id="n-ficha">Ficha</button>
+            <button type="button" id="n-exportar">Guardar .txt</button>
+            <button value="cerrar" class="primario">Cerrar</button>
+        </menu>
+    </form>
+</dialog>
+
+<!-- ============================== AJUSTES ============================== -->
+<dialog id="d-ajustes">
+    <form method="dialog">
+        <h2>Ajustes</h2>
+        <label class="campo">Velocidad sin voz: <b id="a-wpm-v"></b> palabras/min<input type="range" id="a-wpm" min="100" max="900" step="25"></label>
+        <label class="campo">Palabras en pantalla: <b id="a-golpe-v"></b><input type="range" id="a-golpe" min="1" max="8"></label>
+        <label class="campo">Tamaño de letra: <b id="a-letra-v"></b><input type="range" id="a-letra" min="18" max="72" step="2"></label>
+        <label class="campo">Voz<select id="a-voz"></select></label>
+        <label class="campo">Velocidad de la voz: <b id="a-vel-v"></b><input type="range" id="a-vel" min="0.5" max="5" step="0.1"></label>
+        <label class="campo">Tema<select id="a-tema"><option value="oscuro">Oscuro</option><option value="claro">Claro</option><option value="sepia">Sepia</option></select></label>
+        <div class="campo" id="a-bloque-carpeta">Carpeta del libro (ahí se guardan sus notas)
+            <button type="button" id="a-carpeta">Cambiar carpeta…</button>
+            <small id="a-carpeta-v"></small>
+        </div>
+        <small id="a-espacio" class="ayuda"></small>
+        <menu><button value="cerrar" class="primario">Listo</button></menu>
+    </form>
+</dialog>
+
+<div id="cargando" class="cargando" hidden><div><p id="cargando-t">Procesando…</p><progress id="cargando-p" max="1" value="0"></progress></div></div>
+<div id="toast" class="toast"></div>
+
+<script src="js/db.js"></script>
+<script src="js/parser.js"></script>
+<script src="js/importar.js"></script>
+<script src="js/lector.js"></script>
+<script src="js/notas.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
